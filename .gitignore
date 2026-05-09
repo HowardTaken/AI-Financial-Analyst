@@ -1,0 +1,18 @@
+# Environment & secrets
+.env
+
+# Virtual environment
+venv/
+
+# Generated data outputs
+data/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# OS files
+.DS_Store
+Thumbs.db
