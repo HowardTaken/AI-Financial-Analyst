@@ -1,9 +1,7 @@
 import os
-from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-
-load_dotenv()
+from config import get_secret
 
 SYSTEM_INSTRUCTION = (
     "You are a senior Wall Street analyst with expertise in DCF valuation, "
@@ -149,7 +147,7 @@ def run_analysis(
     """
     prompt = build_prompt(ticker, metrics, risk_text, dcf, transcript, competitors)
 
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = get_secret("GEMINI_API_KEY")
     if not api_key or api_key == "your_api_key_here":
         raise EnvironmentError(
             "GEMINI_API_KEY is not set. Add your key to the .env file."

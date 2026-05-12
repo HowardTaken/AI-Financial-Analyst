@@ -15,11 +15,9 @@ to Gemini Search automatically.
 
 import os
 import requests
-from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-
-load_dotenv()
+from config import get_secret
 
 FMP_BASE = "https://financialmodelingprep.com/api"
 
@@ -125,15 +123,15 @@ def get_earnings_transcript(ticker: str) -> str:
     Main entry point.  Tries FMP first, falls back to Gemini Search.
     Returns a raw text block of earnings call content.
     """
-    fmp_key    = os.getenv("FMP_API_KEY", "")
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    fmp_key    = get_secret("FMP_API_KEY")
+    gemini_key = get_secret("GEMINI_API_KEY")
 
     # ── Attempt FMP ───────────────────────────────────────────────────────────
     if fmp_key and fmp_key not in ("your_fmp_key_here", ""):
         try:
             return fetch_transcript_fmp(ticker, fmp_key)
-        except Exception as e:
-            print(f"[transcript] FMP failed ({e}). Falling back to Gemini Search.")
+        except Exception:
+            pass  # FMP unavailable — fall through to Gemini Search below
 
     # ── Fallback: Gemini Search ───────────────────────────────────────────────
     if not gemini_key or gemini_key == "your_api_key_here":

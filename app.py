@@ -3,15 +3,13 @@ import json
 import re
 import pandas as pd
 import streamlit as st
-from dotenv import load_dotenv
 
+import config  # noqa: F401 — triggers load_dotenv() for local runs on import
 from data_fetcher import fetch_financials, get_competitors
 from calculator import calculate_metrics, calculate_dcf
 from sec_scraper import scrape_sec_filing
 from transcript_scraper import get_earnings_transcript
 from agent import run_analysis
-
-load_dotenv()
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
