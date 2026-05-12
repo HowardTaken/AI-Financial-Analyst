@@ -243,6 +243,24 @@ def rating_badge(rating: str) -> str:
     return f'<span class="{cls}">&#9899;&nbsp;{rating}</span>'
 
 
+def _fmt_num(val, spec: str = "", prefix: str = "", suffix: str = "", na: str = "N/A") -> str:
+    """
+    Safely format a numeric value.
+    Returns `na` (default 'N/A') when val is None so format specifiers
+    like :.2f never receive a NoneType and crash the UI.
+
+    Examples
+    --------
+    _fmt_num(123.4,  ".2f",  prefix="$")   -> "$123.40"
+    _fmt_num(None,   ".2f",  prefix="$")   -> "N/A"
+    _fmt_num(0.75,   ".1f",  suffix="%")   -> "0.8%"
+    _fmt_num(None,   "",     suffix="x")   -> "N/A"
+    """
+    if val is None:
+        return na
+    return f"{prefix}{val:{spec}}{suffix}" if spec else f"{prefix}{val}{suffix}"
+
+
 def parse_transcript_bullets(transcript: str) -> list:
     """
     Parse transcript into structured sections.
@@ -405,12 +423,15 @@ def render_results(
     st.markdown("<p class='section-label'>Fundamental Metrics</p>", unsafe_allow_html=True)
     m = metrics
     c1, c2, c3, c4, c5 = st.columns(5)
-    rev_delta = f"{m['yoy_revenue_growth_pct']:+.2f}% YoY" if m["yoy_revenue_growth_pct"] else None
-    c1.metric("Current Price",  f"${m['current_price']:.2f}")
-    c2.metric("P/E Ratio",      f"{m['pe_ratio']}x")
-    c3.metric("Gross Margin",   f"{m['gross_margin_pct']}%")
-    c4.metric("Debt / Equity",  str(m["debt_to_equity"]))
-    c5.metric("Revenue Growth", f"{m['yoy_revenue_growth_pct']}%",
+    rev_delta = (
+        f"{m['yoy_revenue_growth_pct']:+.2f}% YoY"
+        if m["yoy_revenue_growth_pct"] is not None else None
+    )
+    c1.metric("Current Price",  _fmt_num(m["current_price"],          ".2f",  prefix="$"))
+    c2.metric("P/E Ratio",      _fmt_num(m["pe_ratio"],               ".2f",  suffix="x"))
+    c3.metric("Gross Margin",   _fmt_num(m["gross_margin_pct"],       ".2f",  suffix="%"))
+    c4.metric("Debt / Equity",  _fmt_num(m["debt_to_equity"],         ".4f"))
+    c5.metric("Revenue Growth", _fmt_num(m["yoy_revenue_growth_pct"], ".2f",  suffix="%"),
               delta=rev_delta, delta_color="normal")
     st.caption(
         f"Fiscal year ending {m['fiscal_year']}  ·  Source: Yahoo Finance / SEC EDGAR"
@@ -442,12 +463,12 @@ def render_results(
                     "Stockholders Equity",
                 ],
                 "Value": [
-                    f"${d['diluted_eps']:.2f}",
-                    f"${d['total_revenue_current']:,.0f}",
-                    f"${d['total_revenue_prior']:,.0f}",
-                    f"${d['gross_profit']:,.0f}",
-                    f"${d['total_debt']:,.0f}",
-                    f"${d['stockholders_equity']:,.0f}",
+                    _fmt_num(d["diluted_eps"],            ".2f",  prefix="$"),
+                    _fmt_num(d["total_revenue_current"],  ",.0f", prefix="$"),
+                    _fmt_num(d["total_revenue_prior"],    ",.0f", prefix="$"),
+                    _fmt_num(d["gross_profit"],           ",.0f", prefix="$"),
+                    _fmt_num(d["total_debt"],             ",.0f", prefix="$"),
+                    _fmt_num(d["stockholders_equity"],    ",.0f", prefix="$"),
                 ],
             })
 
@@ -476,23 +497,26 @@ def render_results(
             )
             st.warning(f"⚠️ {reason}")
         else:
-            mos      = dcf["margin_of_safety_pct"]
+            mos      = dcf["margin_of_safety_pct"]  # may be None if IV ≤ 0
             iv       = dcf["intrinsic_value"]
             price    = dcf["current_price"]
-            is_under = mos > 0
+            is_under = (mos is not None) and (mos > 0)
             price_cls = "hero-price-green" if is_under else "hero-price-red"
             pill_cls  = "hero-pill-green"  if is_under else "hero-pill-red"
-            mos_label = f"{'▲' if is_under else '▼'} {abs(mos):.1f}%  " \
-                        f"{'UNDERVALUED' if is_under else 'OVERVALUED'}"
+            mos_label = (
+                f"{'▲' if is_under else '▼'} {abs(mos):.1f}%  "
+                f"{'UNDERVALUED' if is_under else 'OVERVALUED'}"
+                if mos is not None else "Margin of Safety N/A"
+            )
 
             # Hero card
             st.markdown(
                 f"""
                 <div class='hero-card'>
                     <div class='hero-label'>DCF Intrinsic Value — Price Target</div>
-                    <div class='{price_cls}'>${iv:,.2f}</div>
+                    <div class='{price_cls}'>{_fmt_num(iv, ",.2f", prefix="$")}</div>
                     <div class='hero-vs'>vs. current market price</div>
-                    <div class='hero-curr'>${price:,.2f}</div>
+                    <div class='hero-curr'>{_fmt_num(price, ",.2f", prefix="$")}</div>
                     <div class='{pill_cls}'>{mos_label}</div>
                 </div>
                 """,
@@ -507,8 +531,8 @@ def render_results(
                       help="Perpetual growth rate applied beyond the 5-year projection window")
             d3.metric("FCF Growth Used",  f"{dcf['capped_growth_rate_pct']:.1f}%",
                       help="3-year average FCF growth, capped at 10% to avoid overfitting")
-            d4.metric("Margin of Safety", f"{mos:+.1f}%",
-                      delta=f"{mos:+.1f}%", delta_color="normal")
+            d4.metric("Margin of Safety", _fmt_num(mos, "+.1f", suffix="%"),
+                      delta=_fmt_num(mos, "+.1f", suffix="%"), delta_color="normal")
 
             st.markdown("<br>", unsafe_allow_html=True)
 
@@ -649,10 +673,10 @@ def render_results(
                     f"font-size:0.85rem;margin-bottom:4px;'>{tkr}</p>",
                     unsafe_allow_html=True,
                 )
-                col.metric("Price",      f"${m_dict.get('current_price', 0):.2f}")
-                col.metric("P/E",        f"{m_dict.get('pe_ratio', '—')}x")
-                col.metric("Gross Mgn",  f"{m_dict.get('gross_margin_pct', '—')}%")
-                col.metric("Rev Growth", f"{m_dict.get('yoy_revenue_growth_pct', '—')}%")
+                col.metric("Price",      _fmt_num(m_dict.get("current_price"),          ".2f",  prefix="$"))
+                col.metric("P/E",        _fmt_num(m_dict.get("pe_ratio"),               ".2f",  suffix="x"))
+                col.metric("Gross Mgn",  _fmt_num(m_dict.get("gross_margin_pct"),       ".2f",  suffix="%"))
+                col.metric("Rev Growth", _fmt_num(m_dict.get("yoy_revenue_growth_pct"), ".2f",  suffix="%"))
 
             _snap_col(snap_cols[0], ticker, metrics, is_target=True)
             for i, comp in enumerate(valid_comps):
