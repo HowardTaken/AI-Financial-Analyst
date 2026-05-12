@@ -39,7 +39,6 @@ def fetch_filing_text(cik: str, accession: str, primary_doc: str) -> str:
     acc_nodash = accession.replace("-", "")
     cik_int = int(cik)
     url = f"{SEC_BASE}/Archives/edgar/data/{cik_int}/{acc_nodash}/{primary_doc}"
-    print(f"  Fetching filing: {url}")
     r = requests.get(url, headers=HEADERS, timeout=60)
     r.raise_for_status()
     return r.text
@@ -126,17 +125,9 @@ def scrape_sec_filing(ticker: str, section: str = "item1a") -> str:
     Full pipeline: ticker → CIK → latest 10-K → extract section → save .txt
     Returns the extracted text.
     """
-    print(f"[sec_scraper] Looking up CIK for {ticker.upper()}...")
     cik = get_cik(ticker)
-    print(f"  CIK: {cik}")
-
-    print(f"[sec_scraper] Finding latest 10-K...")
     accession, primary_doc = get_latest_10k(cik)
-    print(f"  Accession: {accession}  |  Doc: {primary_doc}")
-
     html = fetch_filing_text(cik, accession, primary_doc)
-
-    print(f"[sec_scraper] Extracting '{section}'...")
     text = extract_section(html, section)
 
     os.makedirs("data", exist_ok=True)
@@ -148,7 +139,6 @@ def scrape_sec_filing(ticker: str, section: str = "item1a") -> str:
         f.write("=" * 60 + "\n\n")
         f.write(text)
 
-    print(f"[sec_scraper] Saved to {out_path}  ({len(text):,} chars)")
     return text
 
 

@@ -1,8 +1,9 @@
 import os
 import sys
-from data_fetcher import fetch_financials
-from calculator import calculate_metrics
+from data_fetcher import fetch_financials, get_competitors
+from calculator import calculate_metrics, calculate_dcf
 from sec_scraper import scrape_sec_filing
+from transcript_scraper import get_earnings_transcript
 from agent import run_analysis
 
 
@@ -54,18 +55,61 @@ def render_memo(memo: str):
 
 
 def analyse(ticker: str):
-    print_header(f"Step 1 of 4 -- Fetching Financial Data: {ticker}")
+    print_header(f"Step 1 of 7 -- Fetching Financial Data: {ticker}")
     fetch_financials(ticker)
 
-    print_header("Step 2 of 4 -- Calculating Fundamental Metrics")
+    print_header("Step 2 of 7 -- Calculating Fundamental Metrics")
     metrics = calculate_metrics(ticker)
     print_metrics(metrics)
 
-    print_header("Step 3 of 4 -- Scraping SEC 10-K (Item 1A Risk Factors)")
-    scrape_sec_filing(ticker, section="item1a")
+    print_header("Step 3 of 7 -- Running DCF Valuation Model")
+    dcf = None
+    try:
+        dcf = calculate_dcf(ticker)
+        print(f"  Intrinsic Value:    ${dcf['intrinsic_value']:.2f}")
+        print(f"  Margin of Safety:   {dcf['margin_of_safety_pct']:+.1f}%")
+    except Exception as e:
+        print(f"  DCF skipped: {e}")
 
-    print_header("Step 4 of 4 -- Generating Investment Memo via Gemini")
-    memo = run_analysis(ticker)
+    print_header("Step 4 of 7 -- Scraping SEC 10-K (Item 1A Risk Factors)")
+    risk_text = scrape_sec_filing(ticker, section="item1a")
+
+    print_header("Step 5 of 7 -- Fetching Earnings Call Transcript")
+    transcript = None
+    try:
+        transcript = get_earnings_transcript(ticker)
+        print(f"  Transcript fetched: {len(transcript):,} chars")
+    except Exception as e:
+        print(f"  Transcript skipped: {e}")
+
+    print_header("Step 6 of 7 -- Running Competitor Mini-Analysis")
+    competitors = None
+    try:
+        comp_info = get_competitors(ticker)
+        print(f"  Sector:    {comp_info['sector']}")
+        print(f"  Industry:  {comp_info['industry']}")
+        raw_comps = comp_info["competitors"]
+        if raw_comps:
+            competitors = []
+            for c in raw_comps:
+                cticker = c["ticker"]
+                try:
+                    fetch_financials(cticker)
+                    cmetrics = calculate_metrics(cticker)
+                    competitors.append({"ticker": cticker, "metrics": cmetrics})
+                    print(f"  {cticker}: P/E {cmetrics['pe_ratio']}  "
+                          f"Rev Growth {cmetrics['yoy_revenue_growth_pct']}%  "
+                          f"D/E {cmetrics['debt_to_equity']}")
+                except Exception as ce:
+                    print(f"  {cticker} skipped: {ce}")
+        else:
+            print("  No competitors found.")
+    except Exception as e:
+        print(f"  Competitor analysis skipped: {e}")
+
+    print_header("Step 7 of 7 -- Generating Investment Memo via Gemini")
+    memo = run_analysis(ticker, metrics, risk_text, dcf=dcf, transcript=transcript,
+                        competitors=competitors)
 
     print(f"\n\n{DIVIDER}")
     print(f"  INVESTMENT MEMO: {ticker}")

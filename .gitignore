@@ -6,6 +6,7 @@ venv/
 
 # Generated data outputs
 data/
+history.json
 
 # Python cache
 __pycache__/

@@ -44,8 +44,56 @@ def fetch_financials(ticker: str) -> dict:
     with open(out_path, "w") as f:
         json.dump(data, f, indent=2)
 
-    print(f"[data_fetcher] Saved {ticker.upper()} data to {out_path}")
     return data
+
+
+def get_competitors(ticker: str) -> dict:
+    """
+    Identifies the sector/industry of a ticker and returns the top 2 other
+    companies in the same industry ranked by market weight (market-cap proxy).
+
+    Returns:
+        {
+          "sector":      str,
+          "industry":    str,
+          "competitors": [
+              {"ticker": str, "name": str, "market_weight": float},
+              ...
+          ]
+        }
+    """
+    stock = yf.Ticker(ticker)
+    info  = stock.info
+
+    industry_key = info.get("industryKey")
+    sector       = info.get("sector",   "Unknown")
+    industry     = info.get("industry", "Unknown")
+
+    if not industry_key:
+        raise ValueError(
+            f"Could not determine industry for {ticker.upper()}. "
+            "yfinance returned no 'industryKey'."
+        )
+
+    top_df = yf.Industry(industry_key).top_companies  # indexed by symbol
+
+    competitors = []
+    for symbol, row in top_df.iterrows():
+        if str(symbol).upper() == ticker.upper():
+            continue
+        competitors.append({
+            "ticker":        str(symbol),
+            "name":          row.get("name", str(symbol)),
+            "market_weight": float(row.get("market weight", 0) or 0),
+        })
+        if len(competitors) == 2:
+            break
+
+    return {
+        "sector":      sector,
+        "industry":    industry,
+        "competitors": competitors,
+    }
 
 
 if __name__ == "__main__":
