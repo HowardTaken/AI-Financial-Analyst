@@ -56,7 +56,7 @@ Supporting Figures:
 """
 
     # ── DCF valuation ─────────────────────────────────────────────────────────
-    if dcf:
+    if dcf and dcf.get("dcf_available", False):
         fcf_hist  = "  →  ".join(
             f"${v/1e9:.1f}B" for v in dcf["fcf_history"].values()
         )

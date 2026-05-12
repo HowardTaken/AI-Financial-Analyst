@@ -469,12 +469,12 @@ def render_results(
     # TAB 2 — Valuation Model: DCF hero + FCF chart + assumptions table
     # ════════════════════════════════════════════════════════════════════════
     with tab_valuation:
-        if not dcf:
-            st.markdown(
-                "<div class='empty-state'>⚠️ DCF data unavailable — "
-                "free cash flow figures could not be extracted for this ticker.</div>",
-                unsafe_allow_html=True,
+        if not dcf or not dcf.get("dcf_available", False):
+            reason = (dcf or {}).get(
+                "reason",
+                "DCF Valuation Not Applicable (Insufficient FCF Data / Financial Institution).",
             )
+            st.warning(f"⚠️ {reason}")
         else:
             mos      = dcf["margin_of_safety_pct"]
             iv       = dcf["intrinsic_value"]
@@ -736,12 +736,8 @@ if run_btn:
                 # Step 2 — fundamental metrics
                 metrics = calculate_metrics(ticker)
 
-                # Step 3 — DCF (non-fatal)
-                dcf = None
-                try:
-                    dcf = calculate_dcf(ticker)
-                except Exception as dcf_err:
-                    st.warning(f"DCF skipped: {dcf_err}")
+                # Step 3 — DCF (always returns a dict; never raises)
+                dcf = calculate_dcf(ticker)
 
                 # Step 4 — SEC 10-K risk factors
                 risk_text = scrape_sec_filing(ticker, section="item1a")
