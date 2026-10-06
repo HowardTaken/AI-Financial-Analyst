@@ -1,0 +1,13 @@
+venv/
+.venv/
+.git/
+.claude/
+.env
+data/
+history.json
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+frontend/node_modules/
+frontend/dist/
+tests/

@@ -6,10 +6,44 @@ A tool-calling LLM agent that researches a public company and writes a structure
 Give it a ticker; a Gemini agent decides which tools to call (fundamentals, DCF, SEC 10-K risk factors,
 earnings-call summary, peer comparison), reads what comes back, and submits a schema-validated memo.
 
-It ships with a Streamlit dashboard, a CLI, a 95-test offline suite, and an evaluation harness that
-measures whether the signals are actually any good (spoiler: see [Evaluation](#evaluation)).
+It ships as a **FastAPI backend + React/TypeScript frontend** (with live streaming of the agent's tool calls),
+plus a Streamlit dashboard and a CLI, a 149-test offline suite (120 Python, 29 frontend), and an evaluation
+harness that measures whether the signals are actually any good (spoiler: see [Evaluation](#evaluation)).
 
 > Educational project. Not financial advice.
+
+---
+
+## Architecture
+
+```
+ React + TypeScript (Vite)  ──POST /api/analyses──▶  FastAPI  ──▶  JobManager (bounded worker pool)
+        ▲   live agent events via SSE                   │                     │
+        └───────── GET /api/analyses/{id}/events ◀──────┘                     ▼
+                                                                    analyst/ agent (Gemini + tools)
+```
+
+* **Backend** ([api/](api/)): an analysis takes 1-3 minutes, so `POST /api/analyses` returns `202` with a job id and a
+  worker runs the agent. Clients follow `GET /api/analyses/{id}/events` (Server-Sent Events, resumable with
+  `Last-Event-ID`) to watch tool calls happen, then `GET /api/analyses/{id}` for the result.
+* **Protecting a public demo**: results are cached per ticker (repeat requests cost no Gemini quota; `refresh`
+  bypasses), identical in-flight requests share one run, concurrency and queue depth are bounded (`503` when
+  busy), and each client IP gets N new analyses per hour (`429` + `Retry-After`). Failures are classified into
+  stable error codes and never leak internals.
+* **Privacy**: job ids are unguessable UUIDs and there is no "list analyses" endpoint. The frontend keeps your
+  history in your own browser's `localStorage`.
+* **Frontend** ([frontend/](frontend/)): typed API client, a live agent timeline (parallel tool calls appear as
+  simultaneous running rows), five result tabs (memo, valuation with a colour-coded sensitivity grid and SVG
+  chart, earnings call with cited sources, peer table, agent trace), responsive layout. LLM and search output is
+  rendered as React text (never HTML) and source links are restricted to http(s).
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/analyses` | Start or reuse an analysis → `202 {id, status, cached}` |
+| `GET /api/analyses/{id}` | Status, and the structured result when done |
+| `GET /api/analyses/{id}/events` | SSE stream of the agent's tool calls |
+| `GET /api/analyses/{id}/memo.md` | Memo as a Markdown download |
+| `GET /api/health` | Liveness and whether a Gemini key is configured |
 
 ---
 
@@ -125,10 +159,14 @@ This needs time and dozens of ratings before it means anything; there are no res
 
 ## Engineering notes
 
-* **95 offline tests** (`pytest`): DCF vs hand calculation, bank/negative-FCF/zero-debt edge cases, SEC parser
+* **149 offline tests** (120 `pytest` + 29 `vitest`): the Python suite covers DCF vs hand calculation, bank/negative-FCF/zero-debt edge cases, SEC parser
   on synthetic filings, the agent loop driven by a **scripted fake LLM** (parallel calls, invalid-memo retry,
-  tool failure, step-budget forcing, never-submits), look-ahead guard, history/JSON round-trips, and headless
-  Streamlit `AppTest` runs including "every metric missing". CI runs ruff + pytest on every push.
+  tool failure, step-budget forcing, never-submits), look-ahead guard, history/JSON round-trips, headless
+  Streamlit `AppTest` runs, and the **API** (full job lifecycle, SSE ordering and resume, caching, in-flight
+  dedupe, rate limiting, queue backpressure, error classification without leaking internals). The frontend
+  suite drives the whole app against a fake `EventSource` (live timeline → result, error, 429, unreachable
+  server, stream-loss polling fallback) and checks that missing data never renders as "null" and hostile
+  LLM text stays inert. CI runs ruff + pytest and the frontend type-check, build and tests.
 * **SEC parsing**: heading detection is structural, with no per-company rules; it handles split headings
   (`ITEM 1A. RIS` / `K FACTORS`), dash variants, TOC rows, and inline "see Item 1A" cross-references.
   Extracted correctly for 24 of 26 large-cap filers tried; INTC (non-standard layout) and XOM (SEC maps the
@@ -174,20 +212,38 @@ ANALYST_MODEL=gemini-2.5-flash       # optional
 ```
 
 ```bash
-streamlit run app.py                 # web dashboard
-python main.py AAPL NVDA             # CLI (or `python main.py` for a prompt)
+# Web app (FastAPI + React). Two terminals for development:
+uvicorn api.app:app --reload --port 8000        # backend
+cd frontend && npm install && npm run dev       # frontend on http://localhost:5173 (proxies /api)
+
+# Single-process production style: build the frontend, FastAPI serves it
+cd frontend && npm run build && cd .. && uvicorn api.app:app --port 8000   # http://localhost:8000
+
+streamlit run app.py                 # alternative: Streamlit dashboard
+python main.py AAPL NVDA             # alternative: CLI (or `python main.py` for a prompt)
 pip install -r requirements-dev.txt && pytest && ruff check .
+cd frontend && npm test              # frontend tests (type-check + build: npm run build)
 python -m analyst.backtest --asof 2024-04-01 --asof 2025-04-01
 python -m analyst.evaluate
 ```
 
-On Streamlit Cloud set the same keys in the Secrets dashboard.
+Extra server settings (all optional): `ANALYST_RATE_LIMIT_PER_HOUR` (default 10 new analyses per IP, `0` disables),
+`ANALYST_MAX_CONCURRENT` (default 2), `ANALYST_CORS_ORIGINS` (default `http://localhost:5173`),
+`ANALYST_TRUST_PROXY=1` (honour `X-Forwarded-For` when behind a reverse proxy).
+
+**Deploy**: the included `Dockerfile` builds the frontend and serves everything from one container
+(`docker build -t analyst . && docker run -p 8000:8000 -e GEMINI_API_KEY=... analyst`). Job state is in process
+memory, so run a single worker. *The Dockerfile has not been built or run in CI yet.*
+On Streamlit Cloud (for the Streamlit app) set the same keys in the Secrets dashboard.
 
 ## Project structure
 
 ```
-app.py                  Streamlit UI (rendering only)
+api/                    FastAPI backend: app.py (routes, SSE), jobs.py (workers, cache, rate limit)
+frontend/               React + TypeScript (Vite) app: src/components, api.ts, useAnalysis.ts, format.ts
+app.py                  Streamlit UI (alternative front end)
 main.py                 CLI
+Dockerfile              One-container build (frontend + API)
 assets/style.css        Dashboard styling
 analyst/
   agent.py              Function-calling loop, system prompt, forced-submit fallback
@@ -206,5 +262,5 @@ analyst/
   evaluate.py           Forward test of logged ratings vs SPY
   formatting.py         Presentation helpers (UI/CLI shared, testable)
   cache.py config.py
-tests/                  95 offline tests
+tests/                  120 offline Python tests (frontend tests live in frontend/src/test)
 ```
