@@ -17,3 +17,9 @@ __pycache__/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Tooling caches and local agent state
+.pytest_cache/
+.ruff_cache/
+.claude/
+*.tmp
