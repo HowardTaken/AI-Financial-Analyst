@@ -18,7 +18,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Lint
         run: ruff check .
-      - name: Tests (offline: no network, no API keys)
+      - name: "Tests (offline, no network or API keys)"
         run: pytest
 
   frontend:
